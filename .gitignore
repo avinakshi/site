@@ -47,3 +47,8 @@ postgres-data/
 
 # PGlite local-dev data dir (out-of-the-box embedded Postgres)
 .local-data/
+
+# Deploy artifacts (auto-generated production secrets — never commit)
+.env.deploy.local
+.env.production.railway
+.env.production.vercel
