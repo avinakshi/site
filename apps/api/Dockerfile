@@ -47,6 +47,7 @@ COPY tsconfig.base.json package.json pnpm-workspace.yaml turbo.json ./
 COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
+COPY scripts ./scripts
 
 # Run as non-root. --create-home ensures /home/nodeapp exists so
 # corepack can write its cache there at runtime (it pulls package
