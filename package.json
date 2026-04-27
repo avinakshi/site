@@ -16,7 +16,7 @@
     "test": "turbo run test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky",
+    "prepare": "node -e \"try{require('node:child_process').execSync('husky',{stdio:'inherit'})}catch{}\"",
     "db:generate": "pnpm --filter @csm-chat/db db:generate",
     "db:migrate": "pnpm --filter @csm-chat/db db:migrate",
     "db:seed": "pnpm --filter @csm-chat/db db:seed",
