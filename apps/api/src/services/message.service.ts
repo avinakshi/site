@@ -9,11 +9,14 @@ import {
 } from '@csm-chat/shared';
 
 import type { MessageBroadcaster } from '../socket/broadcaster.js';
+import type { NotificationService } from './notification.service.js';
 
 export interface MessageDeps {
   db: Database;
   /** Optional fan-out — invoked only on real (non-idempotent) inserts. */
   broadcaster?: MessageBroadcaster;
+  /** Optional email-fallback dispatcher. Fired async after broadcast. */
+  notifier?: NotificationService;
 }
 
 export interface RequestContext {
@@ -79,7 +82,7 @@ export interface MessageService {
 }
 
 export function buildMessageService(deps: MessageDeps): MessageService {
-  const { db, broadcaster } = deps;
+  const { db, broadcaster, notifier } = deps;
 
   return {
     async send(input, ctx) {
@@ -159,6 +162,12 @@ export function buildMessageService(deps: MessageDeps): MessageService {
       const message = rowToMessage(row);
       // Fan-out only on real new inserts; idempotent dups already returned above.
       broadcaster?.broadcastNewMessage(message);
+      // Fire-and-forget email notification — never await, never throw.
+      if (notifier) {
+        void notifier.notifyForMessage(message).catch(() => {
+          /* notification service logs its own failures */
+        });
+      }
       return message;
     },
 

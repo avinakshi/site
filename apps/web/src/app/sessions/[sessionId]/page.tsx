@@ -7,6 +7,7 @@ import { ArrowLeft, Paperclip, Send, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { api, API_URL, ApiError, getAccessToken, onAccessTokenChange } from '@/lib/api';
+import { attachUnreadTitle, playPing } from '@/lib/notify';
 import { connectAsCsm, type ChatSocket } from '@/lib/socket';
 import { useAuth } from '@/lib/auth-store';
 import type { ListMessagesResponse, Message, SessionDetail } from '@csm-chat/shared';
@@ -170,6 +171,16 @@ export default function SessionDetailPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitAtRef = useRef<number>(0);
+  const unreadTitleRef = useRef<ReturnType<typeof attachUnreadTitle> | null>(null);
+
+  useEffect(() => {
+    const handle = attachUnreadTitle();
+    unreadTitleRef.current = handle;
+    return () => {
+      handle.destroy();
+      unreadTitleRef.current = null;
+    };
+  }, []);
 
   const loadDetail = useCallback(async () => {
     try {
@@ -247,6 +258,11 @@ export default function SessionDetailPage() {
         setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
         // Any new message from the client ends their typing indicator.
         if (msg.senderType === 'client') setClientTyping(false);
+        // In-tab attention: ping + title flash for messages we didn't send.
+        if (msg.senderType === 'client') {
+          playPing();
+          unreadTitleRef.current?.bump();
+        }
       });
       sock.on('presence:csm', (info: { online: boolean }) => {
         // For the dashboard, "presence:csm" tracks whether ANY CSM is connected to

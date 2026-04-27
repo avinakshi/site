@@ -125,6 +125,7 @@ export function buildSessionService(deps: SessionDeps): SessionService {
           assignedCsmId: input.assignedCsmId ?? null,
           createdByUserId: input.createdByUserId,
           tokenHash,
+          urlToken: token,
           status: 'pending',
           expiresAt,
           metadata: input.metadata ?? {},

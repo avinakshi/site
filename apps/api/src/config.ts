@@ -85,6 +85,20 @@ function makeConfigSchema(isProd: boolean) {
     // ── WebSocket ───────────────────────────────────────────────────
     WS_PING_INTERVAL_MS: z.coerce.number().int().positive().default(25_000),
     WS_PING_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+
+    // ── Email notifications (Resend) ────────────────────────────────
+    // Optional. If RESEND_API_KEY is unset, the notification service
+    // becomes a no-op — useful for dev and for prod until the operator
+    // signs up for Resend.
+    RESEND_API_KEY: z
+      .string()
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
+    EMAIL_FROM: z.string().default('CSM Chat <onboarding@resend.dev>'),
+    /** Cool-down between emails per session per direction. */
+    NOTIFICATION_THROTTLE_SEC: z.coerce.number().int().positive().default(60),
+    /** A side counts as offline if no socket has been seen for this long. */
+    NOTIFICATION_OFFLINE_GRACE_SEC: z.coerce.number().int().positive().default(60),
   });
 }
 

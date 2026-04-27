@@ -126,6 +126,15 @@ export const sessions = pgTable(
     }),
     closedReason: varchar('closed_reason', { length: 500 }),
     metadata: jsonb('metadata').notNull().default({}),
+    // Raw URL JWT, kept so the notification service can email a working
+    // chat link days after creation. Token is short-lived (max 30d) and
+    // already gated by signature + status; storing alongside the hash
+    // is the same trust boundary as everything else in this row.
+    urlToken: text('url_token'),
+    // Per-side throttle: don't email faster than once per minute per
+    // direction. Updated on successful send by the notification service.
+    lastClientNotificationAt: timestamp('last_client_notification_at', { withTimezone: true }),
+    lastCsmNotificationAt: timestamp('last_csm_notification_at', { withTimezone: true }),
     // Phase 2 placeholders (ignored in MVP):
     emailThreadId: varchar('email_thread_id', { length: 255 }),
     aiInterventionCount: integer('ai_intervention_count').notNull().default(0),

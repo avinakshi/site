@@ -6,6 +6,7 @@ import { Paperclip, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { API_URL, ApiError } from '@/lib/api';
+import { attachUnreadTitle, playPing } from '@/lib/notify';
 import { chatListMessages, chatSendMessage, chatVerify } from '@/lib/chat-api';
 import { connectAsClient, type ChatSocket } from '@/lib/socket';
 import type { ChatVerifyResponse, Message } from '@csm-chat/shared';
@@ -163,6 +164,16 @@ export default function ClientChatPage() {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitAtRef = useRef<number>(0);
+  const unreadTitleRef = useRef<ReturnType<typeof attachUnreadTitle> | null>(null);
+
+  useEffect(() => {
+    const handle = attachUnreadTitle();
+    unreadTitleRef.current = handle;
+    return () => {
+      handle.destroy();
+      unreadTitleRef.current = null;
+    };
+  }, []);
   // Flag prevents double-mount cleanup in React Strict Mode dev from racing
   // initial verify.
   const verifyAttemptedRef = useRef(false);
@@ -256,7 +267,12 @@ export default function ClientChatPage() {
         });
         lastSeenMessageIdRef.current = msg.id;
         // A message arriving from the other side ends their typing.
-        if (msg.senderType !== 'client') setCsmTyping(false);
+        if (msg.senderType !== 'client') {
+          setCsmTyping(false);
+          // In-tab attention for messages from the CSM.
+          playPing();
+          unreadTitleRef.current?.bump();
+        }
       });
       sock.on('presence:csm', (info: { online: boolean }) => {
         setCsmOnline(info.online);

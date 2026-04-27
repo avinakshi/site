@@ -10,6 +10,8 @@ export interface MessageBroadcaster {
   broadcastNewMessage(message: Message): void;
   broadcastSessionStatus(sessionId: string, status: SessionStatus, csmName?: string | null): void;
   broadcastCsmPresence(sessionId: string, online: boolean, lastSeenAt: string | null): void;
+  /** Whether at least one socket of the given identity type is in the session room. */
+  hasSideOnline(sessionId: string, side: 'client' | 'csm'): Promise<boolean>;
 }
 
 class NoopBroadcaster implements MessageBroadcaster {
@@ -21,6 +23,9 @@ class NoopBroadcaster implements MessageBroadcaster {
   }
   broadcastCsmPresence(): void {
     /* no-op */
+  }
+  async hasSideOnline(): Promise<boolean> {
+    return false;
   }
 }
 
@@ -37,6 +42,11 @@ export class SocketBroadcaster implements MessageBroadcaster {
 
   broadcastCsmPresence(sessionId: string, online: boolean, lastSeenAt: string | null): void {
     this.ns.to(`session:${sessionId}`).emit('presence:csm', { online, lastSeenAt });
+  }
+
+  async hasSideOnline(sessionId: string, side: 'client' | 'csm'): Promise<boolean> {
+    const peers = await this.ns.in(`session:${sessionId}`).fetchSockets();
+    return peers.some((s) => s.data?.identityType === side);
   }
 }
 
@@ -62,5 +72,9 @@ export class LazyBroadcaster implements MessageBroadcaster {
 
   broadcastCsmPresence(sessionId: string, online: boolean, lastSeenAt: string | null): void {
     this.impl.broadcastCsmPresence(sessionId, online, lastSeenAt);
+  }
+
+  hasSideOnline(sessionId: string, side: 'client' | 'csm'): Promise<boolean> {
+    return this.impl.hasSideOnline(sessionId, side);
   }
 }

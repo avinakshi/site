@@ -26,6 +26,8 @@ import chatRoutes from './routes/chat.js';
 import attachmentsRoutes from './routes/attachments.js';
 import { buildAttachmentService } from './services/attachment.service.js';
 import { buildAuthService } from './services/auth.service.js';
+import { buildEmailService } from './services/email.service.js';
+import { buildNotificationService } from './services/notification.service.js';
 import { buildUserService } from './services/user.service.js';
 import { buildClientService } from './services/client.service.js';
 import { buildSessionService } from './services/session.service.js';
@@ -160,7 +162,23 @@ export async function buildServer(opts: BuildServerOptions): Promise<BuiltServer
   await app.register(clientsRoutes, { clientService });
 
   const sessionService = buildSessionService({ db: dbClient.db, config });
-  const messageService = buildMessageService({ db: dbClient.db, broadcaster });
+  const emailService = buildEmailService({
+    apiKey: config.RESEND_API_KEY,
+    from: config.EMAIL_FROM,
+    log: app.log,
+  });
+  const notificationService = buildNotificationService({
+    db: dbClient.db,
+    config,
+    email: emailService,
+    broadcaster,
+    log: app.log,
+  });
+  const messageService = buildMessageService({
+    db: dbClient.db,
+    broadcaster,
+    notifier: notificationService,
+  });
   await app.register(sessionsRoutes, {
     clientService,
     sessionService,
