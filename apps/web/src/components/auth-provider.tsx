@@ -4,7 +4,11 @@ import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-store';
 
-const PUBLIC_PATHS = new Set(['/login', '/']);
+// '/' is intentionally NOT public — visiting it must redirect away
+// (to /sessions when authed, /login otherwise). app/page.tsx is a
+// bare `null` and would render as a blank screen if we let it fall
+// through this guard.
+const PUBLIC_PATHS = new Set(['/login']);
 
 /**
  * Wraps the app: bootstraps auth via the csm_refresh cookie and
