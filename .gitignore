@@ -44,3 +44,6 @@ test-results/
 # Docker / local
 .docker/
 postgres-data/
+
+# PGlite local-dev data dir (out-of-the-box embedded Postgres)
+.local-data/

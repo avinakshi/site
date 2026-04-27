@@ -1,7 +1,8 @@
 import './env.js';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
+import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { createDbClient } from './client.js';
 
 async function main(): Promise<void> {
@@ -11,11 +12,17 @@ async function main(): Promise<void> {
   const here = dirname(fileURLToPath(import.meta.url));
   const migrationsFolder = resolve(here, '..', 'drizzle');
 
-  const { db, close } = createDbClient({ connectionString: url });
-  console.warn('Running migrations from', migrationsFolder);
-  await migrate(db, { migrationsFolder });
+  const client = createDbClient({ connectionString: url });
+  console.warn(`Running migrations from ${migrationsFolder} (driver: ${client.driver})`);
+
+  if (client.driver === 'pglite') {
+    await migratePglite(client.db, { migrationsFolder });
+  } else {
+    await migratePg(client.db, { migrationsFolder });
+  }
+
   console.warn('Migrations complete.');
-  await close();
+  await client.close();
 }
 
 main().catch((err: unknown) => {

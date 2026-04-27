@@ -20,7 +20,8 @@
     "db:generate": "pnpm --filter @csm-chat/db db:generate",
     "db:migrate": "pnpm --filter @csm-chat/db db:migrate",
     "db:seed": "pnpm --filter @csm-chat/db db:seed",
-    "db:studio": "pnpm --filter @csm-chat/db db:studio"
+    "db:studio": "pnpm --filter @csm-chat/db db:studio",
+    "db:verify": "pnpm --filter @csm-chat/db db:verify"
   },
   "devDependencies": {
     "@eslint/js": "^9.12.0",

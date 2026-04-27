@@ -35,35 +35,49 @@ packages/
 
 ## Prerequisites
 
-- Node.js **20.18.0** — pin via `nvm use` (uses `.nvmrc`)
+- Node.js **20.18.0** — `nvm use` (uses `.nvmrc`)
 - pnpm **9.15.0** — `corepack enable && corepack prepare pnpm@9.15.0 --activate`
-- Docker (for local PostgreSQL via `docker-compose`, set up in Step 2)
+
+> **No Docker required.** Local development uses [PGlite](https://github.com/electric-sql/pglite) — an embedded Postgres in WASM that runs in-process. Data persists to `.local-data/` (gitignored). Production uses real Postgres (Supabase/Railway) via the same Drizzle code path; the driver is auto-selected from `DATABASE_URL` (`file:` → PGlite, `postgres:` → node-postgres).
+>
+> A `docker-compose.yml` is included for anyone who prefers a real local Postgres — it's optional.
 
 ## Setup
 
 ```bash
-# Install dependencies (root + all workspaces)
-pnpm install
-
-# Copy env template
-cp .env.example .env
-# Then fill in secrets — see CLAUDE.md §"ENVIRONMENT VARIABLES"
-
-# Run all dev servers (Turborepo)
-pnpm dev
+pnpm install            # workspaces + native bcrypt build
+pnpm db:migrate         # creates .local-data/dev-db, applies migrations
+pnpm db:seed            # admin@example.com + csm1/csm2 (password printed)
+pnpm dev                # runs all apps in dev mode
 ```
 
 ## Scripts
 
-| Command             | What it does                              |
-| ------------------- | ----------------------------------------- |
-| `pnpm dev`          | Run all apps in dev mode                  |
-| `pnpm build`        | Build all apps and packages               |
-| `pnpm lint`         | Lint all workspaces                       |
-| `pnpm typecheck`    | TypeScript strict check across workspaces |
-| `pnpm test`         | Run all tests                             |
-| `pnpm format`       | Auto-format with Prettier                 |
-| `pnpm format:check` | Check formatting (used in CI)             |
+| Command             | What it does                                               |
+| ------------------- | ---------------------------------------------------------- |
+| `pnpm dev`          | Run all apps in dev mode (Turborepo)                       |
+| `pnpm build`        | Build all apps and packages                                |
+| `pnpm lint`         | Lint all workspaces                                        |
+| `pnpm typecheck`    | TypeScript strict check across workspaces                  |
+| `pnpm test`         | Run all tests                                              |
+| `pnpm format`       | Auto-format with Prettier                                  |
+| `pnpm format:check` | Check formatting (used in CI)                              |
+| `pnpm db:generate`  | Diff schema → emit a new migration                         |
+| `pnpm db:migrate`   | Apply migrations (PGlite locally, postgres:// in prod)     |
+| `pnpm db:seed`      | Insert seed admin + CSMs (idempotent)                      |
+| `pnpm db:verify`    | End-to-end schema check in a throwaway PGlite (used in CI) |
+| `pnpm db:studio`    | Open Drizzle Studio against `DATABASE_URL`                 |
+
+## Database
+
+The same code path serves both local and production:
+
+| Environment  | `DATABASE_URL`                                      | Driver        |
+| ------------ | --------------------------------------------------- | ------------- |
+| Local dev    | _(unset — defaults to)_ `file:./.local-data/dev-db` | PGlite (WASM) |
+| Local dev    | `file:./path/to/dir`                                | PGlite        |
+| Tests / CI   | `pglite:memory` _or any temp dir_                   | PGlite        |
+| Staging/Prod | `postgres://user:pass@host:5432/db`                 | node-postgres |
 
 ## Build instructions
 

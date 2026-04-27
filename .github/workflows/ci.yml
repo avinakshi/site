@@ -43,5 +43,8 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Verify DB schema (PGlite end-to-end)
+        run: pnpm db:verify
+
       - name: Test
         run: pnpm test
