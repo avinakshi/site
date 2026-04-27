@@ -11,10 +11,17 @@
 # ──────────────────────────────────────────────────────────────────────
 
 FROM node:20.18.0-bookworm-slim AS base
+# COREPACK_INTEGRITY_KEYS="" disables corepack's outdated signing-key
+# verification (Node 20.18.0 ships with stale keys that reject pnpm 9.15
+# signatures). Upgrading corepack to latest is the long-term fix; we do
+# both so the install never blocks on signature mismatch.
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
-    HUSKY=0
-RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+    HUSKY=0 \
+    COREPACK_INTEGRITY_KEYS=""
+RUN npm install -g corepack@latest && \
+    corepack enable && \
+    corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
 # ── deps ─────────────────────────────────────────────────────────────
