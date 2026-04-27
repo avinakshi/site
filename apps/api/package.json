@@ -1,0 +1,13 @@
+{
+  "name": "@csm-chat/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'API dev server is wired up in Step 4 (API Foundation).'",
+    "build": "echo 'Build is wired up in Step 4.'",
+    "lint": "eslint src --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'Tests are wired up from Step 5 onward.'"
+  }
+}

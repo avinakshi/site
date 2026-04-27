@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.next
+out
+.turbo
+coverage
+playwright-report
+test-results
+pnpm-lock.yaml
+*.tsbuildinfo
+
+# Source-of-truth build instructions: never reformat
+CLAUDE.md
+PHASE2_AI_DESIGN.md

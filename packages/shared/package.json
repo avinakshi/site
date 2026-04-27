@@ -1,0 +1,13 @@
+{
+  "name": "@csm-chat/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "eslint src --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'Tests are wired up in Step 3.'"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@csm-chat/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Web dev server is wired up in Step 10 (CSM Dashboard).'",
+    "build": "echo 'Build is wired up in Step 10.'",
+    "lint": "echo 'Lint is wired up in Step 10.'",
+    "typecheck": "echo 'Typecheck is wired up in Step 10.'",
+    "test": "echo 'E2E tests are wired up in Step 10.'"
+  }
+}
