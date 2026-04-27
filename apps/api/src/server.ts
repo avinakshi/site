@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyCors from '@fastify/cors';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyCookie from '@fastify/cookie';
+import fastifyMultipart from '@fastify/multipart';
 import fastifyRateLimit from '@fastify/rate-limit';
 import {
   serializerCompiler,
@@ -22,6 +23,8 @@ import usersRoutes from './routes/users.js';
 import clientsRoutes from './routes/clients.js';
 import sessionsRoutes from './routes/sessions.js';
 import chatRoutes from './routes/chat.js';
+import attachmentsRoutes from './routes/attachments.js';
+import { buildAttachmentService } from './services/attachment.service.js';
 import { buildAuthService } from './services/auth.service.js';
 import { buildUserService } from './services/user.service.js';
 import { buildClientService } from './services/client.service.js';
@@ -97,6 +100,12 @@ export async function buildServer(opts: BuildServerOptions): Promise<BuiltServer
     permittedCrossDomainPolicies: { permittedPolicies: 'none' },
   });
 
+  // 3a. Multipart (registered before cookie so file uploads bypass the
+  // 1 MB JSON body limit; per-route limits enforced in the upload route).
+  await app.register(fastifyMultipart, {
+    limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  });
+
   // 3. Cookie
   await app.register(fastifyCookie, {
     parseOptions: {
@@ -166,6 +175,14 @@ export async function buildServer(opts: BuildServerOptions): Promise<BuiltServer
     tokenService,
     messageService,
     auditService,
+  });
+
+  const attachmentService = buildAttachmentService({ db: dbClient.db });
+  await app.register(attachmentsRoutes, {
+    db: dbClient.db,
+    config,
+    attachmentService,
+    messageService,
   });
 
   return { app, broadcaster, services: { tokenService, messageService } };

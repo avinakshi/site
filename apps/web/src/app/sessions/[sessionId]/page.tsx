@@ -3,15 +3,86 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Send, X } from 'lucide-react';
+import { ArrowLeft, Paperclip, Send, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { api, ApiError, getAccessToken, onAccessTokenChange } from '@/lib/api';
+import { api, API_URL, ApiError, getAccessToken, onAccessTokenChange } from '@/lib/api';
 import { connectAsCsm, type ChatSocket } from '@/lib/socket';
 import { useAuth } from '@/lib/auth-store';
 import type { ListMessagesResponse, Message, SessionDetail } from '@csm-chat/shared';
 
 const PAGE_SIZE = 50;
+
+interface AttachmentRef {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+function getAttachment(m: Message): AttachmentRef | null {
+  const a = (m.metadata as { attachment?: AttachmentRef } | null)?.attachment;
+  if (!a || typeof a.id !== 'string') return null;
+  return a;
+}
+
+function hasAttachment(m: Message): boolean {
+  return getAttachment(m) !== null;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function AttachmentBlock({
+  message,
+  accessToken,
+}: {
+  message: Message;
+  accessToken: string | null;
+}) {
+  const att = getAttachment(message);
+  if (!att) return null;
+  const url = `${API_URL}/v1/attachments/${att.id}`;
+  const isImage = att.mimeType.startsWith('image/');
+
+  async function open(): Promise<void> {
+    // Bytes are auth-gated; fetch with bearer + open as blob URL.
+    try {
+      const res = await fetch(url, {
+        headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
+      });
+      if (!res.ok) {
+        toast.error('Could not open attachment');
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch {
+      toast.error('Could not open attachment');
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void open()}
+      className="block w-full rounded border border-border/40 bg-background/10 px-2 py-1.5 text-left text-xs underline-offset-2 hover:underline"
+    >
+      <div className="flex items-center gap-2">
+        <span className="truncate font-medium">
+          {isImage ? '🖼️ ' : '📎 '}
+          {att.filename}
+        </span>
+        <span className="ml-auto shrink-0 opacity-70">{formatBytes(att.sizeBytes)}</span>
+      </div>
+    </button>
+  );
+}
 
 export default function SessionDetailPage() {
   const router = useRouter();
@@ -28,8 +99,10 @@ export default function SessionDetailPage() {
   const [csmOnline, setCsmOnline] = useState(true);
   const [clientTyping, setClientTyping] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const socketRef = useRef<ChatSocket | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitAtRef = useRef<number>(0);
@@ -210,6 +283,32 @@ export default function SessionDetailPage() {
     sock.emit('typing:start', { sessionId });
   }
 
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // reset so picking the same file again still fires onChange
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File too large (10 MB max)');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const own = await api<Message>(`/v1/sessions/${sessionId}/attachments`, {
+        method: 'POST',
+        auth: true,
+        body: fd,
+      });
+      setMessages((prev) => (prev.some((m) => m.id === own.id) ? prev : [...prev, own]));
+    } catch (err) {
+      if (err instanceof ApiError) toast.error(err.message);
+      else toast.error('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   if (!user) return null;
 
   const isClosed = detail?.status === 'closed' || detail?.status === 'expired';
@@ -274,7 +373,10 @@ export default function SessionDetailPage() {
                         : 'bg-background text-foreground')
                     }
                   >
-                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    <AttachmentBlock message={m} accessToken={getAccessToken()} />
+                    {!hasAttachment(m) && (
+                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    )}
                     <div className="mt-1 text-[10px] opacity-70">
                       {new Date(m.createdAt).toLocaleTimeString()}
                     </div>
@@ -298,7 +400,24 @@ export default function SessionDetailPage() {
         </div>
 
         <div className="border-t border-border bg-background p-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => void handleFilePicked(e)}
+          />
           <div className="flex items-end gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isClosed || uploading}
+              aria-label="Attach file"
+              title="Attach image, PDF, or document (10 MB max)"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
             <textarea
               value={draft}
               onChange={(e) => {

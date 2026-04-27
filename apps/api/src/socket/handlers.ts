@@ -160,9 +160,17 @@ async function handleConnection(socket: ChatSocket, deps: HandlerDeps): Promise<
   const { db, broadcaster } = deps;
 
   if (socket.data.identityType === 'client') {
-    socket.join(`session:${socket.data.sessionId}`);
+    const sessionId = socket.data.sessionId;
+    socket.join(`session:${sessionId}`);
+    // Sync current presence to the freshly-connected client. A CSM already
+    // in the room means they were online before this socket existed and
+    // wouldn't receive a fresh broadcast — without this sync the client
+    // would default to "offline" until the CSM re-connects or re-joins.
+    const peers = await deps.ns.in(`session:${sessionId}`).fetchSockets();
+    const csmOnline = peers.some((s) => s.data?.identityType === 'csm');
+    socket.emit('presence:csm', { online: csmOnline, lastSeenAt: new Date().toISOString() });
     if (socket.data.lastSeenMessageId) {
-      await replayMissedMessages(socket, db, socket.data.sessionId, socket.data.lastSeenMessageId);
+      await replayMissedMessages(socket, db, sessionId, socket.data.lastSeenMessageId);
     }
     return;
   }

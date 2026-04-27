@@ -11,8 +11,16 @@ import {
   uniqueIndex,
   integer,
   inet,
+  customType,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
+
+// Postgres bytea — stored/returned as Buffer.
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return 'bytea';
+  },
+});
 
 // ─── ENUMS ───
 export const userRoleEnum = pgEnum('user_role', ['csm', 'admin']);
@@ -190,6 +198,35 @@ export const messages = pgTable(
   }),
 );
 
+// ─── ATTACHMENTS ───
+// MVP file storage: bytes live in Postgres bytea so the API has zero
+// external storage dependency. 10 MB hard cap enforced at the route
+// boundary. Content-Type is whitelisted (image/*, application/pdf,
+// .doc/.docx). Each attachment row is referenced from a message's
+// metadata.attachment.id; the bytes are streamed back via
+// GET /v1/attachments/:id under per-session auth.
+export const attachments = pgTable(
+  'attachments',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    filename: varchar('filename', { length: 255 }).notNull(),
+    mimeType: varchar('mime_type', { length: 100 }).notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    data: bytea('data').notNull(),
+    uploadedByUserId: uuid('uploaded_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    sessionIdx: index('attachments_session_idx').on(t.sessionId),
+    createdAtIdx: index('attachments_created_at_idx').on(t.createdAt),
+  }),
+);
+
 // ─── AUDIT LOG ───
 export const auditLog = pgTable(
   'audit_log',
@@ -253,4 +290,9 @@ export const sessionDevicesRelations = relations(sessionDevices, ({ one }) => ({
 export const messagesRelations = relations(messages, ({ one }) => ({
   session: one(sessions, { fields: [messages.sessionId], references: [sessions.id] }),
   sender: one(users, { fields: [messages.senderId], references: [users.id] }),
+}));
+
+export const attachmentsRelations = relations(attachments, ({ one }) => ({
+  session: one(sessions, { fields: [attachments.sessionId], references: [sessions.id] }),
+  uploadedBy: one(users, { fields: [attachments.uploadedByUserId], references: [users.id] }),
 }));

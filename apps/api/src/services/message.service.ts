@@ -54,6 +54,12 @@ export interface SendInput {
   content: string;
   /** Required: client-generated UUID for end-to-end idempotency. */
   clientMessageId: string;
+  /**
+   * Optional message metadata. Currently used to carry attachment refs
+   * (`{ attachment: { id, filename, mimeType, sizeBytes } }`). Phase 2
+   * will reuse this slot for AI provenance.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 export interface ListInput {
@@ -119,6 +125,7 @@ export function buildMessageService(deps: MessageDeps): MessageService {
             senderId: input.senderId,
             content: input.content,
             clientMessageId: input.clientMessageId,
+            ...(input.metadata ? { metadata: input.metadata } : {}),
           })
           .returning();
         row = inserted[0];

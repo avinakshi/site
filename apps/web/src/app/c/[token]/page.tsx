@@ -4,12 +4,75 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ApiError } from '@/lib/api';
+import { API_URL, ApiError } from '@/lib/api';
 import { chatListMessages, chatSendMessage, chatVerify } from '@/lib/chat-api';
 import { connectAsClient, type ChatSocket } from '@/lib/socket';
 import type { ChatVerifyResponse, Message } from '@csm-chat/shared';
 
 const PAGE_SIZE = 50;
+
+interface AttachmentRef {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+}
+
+function getAttachment(m: Message): AttachmentRef | null {
+  const a = (m.metadata as { attachment?: AttachmentRef } | null)?.attachment;
+  if (!a || typeof a.id !== 'string') return null;
+  return a;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function ChatAttachment({
+  message,
+  sessionJwt,
+}: {
+  message: Message;
+  sessionJwt: string | null;
+}) {
+  const att = getAttachment(message);
+  if (!att) return null;
+  const isImage = att.mimeType.startsWith('image/');
+
+  async function open(): Promise<void> {
+    if (!sessionJwt) return;
+    try {
+      const res = await fetch(`${API_URL}/v1/attachments/${att!.id}`, {
+        headers: { authorization: `Bearer ${sessionJwt}` },
+      });
+      if (!res.ok) return;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => void open()}
+      className="block w-full rounded border border-border/40 bg-background/10 px-2 py-1.5 text-left text-xs underline-offset-2 hover:underline"
+    >
+      <div className="flex items-center gap-2">
+        <span className="truncate font-medium">
+          {isImage ? '🖼️ ' : '📎 '}
+          {att.filename}
+        </span>
+        <span className="ml-auto shrink-0 opacity-70">{formatBytes(att.sizeBytes)}</span>
+      </div>
+    </button>
+  );
+}
 
 type VerifyState =
   | { kind: 'loading' }
@@ -316,7 +379,10 @@ export default function ClientChatPage() {
                         : 'bg-background text-foreground')
                     }
                   >
-                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    <ChatAttachment message={m} sessionJwt={sessionJwtRef.current} />
+                    {!getAttachment(m) && (
+                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    )}
                     <div className="mt-1 text-[10px] opacity-70">
                       {new Date(m.createdAt).toLocaleTimeString()}
                     </div>
