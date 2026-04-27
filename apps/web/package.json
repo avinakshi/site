@@ -4,10 +4,36 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'Web dev server is wired up in Step 10 (CSM Dashboard).'",
-    "build": "echo 'Build is wired up in Step 10.'",
-    "lint": "echo 'Lint is wired up in Step 10.'",
-    "typecheck": "echo 'Typecheck is wired up in Step 10.'",
-    "test": "echo 'E2E tests are wired up in Step 10.'"
+    "dev": "next dev --port 3000",
+    "build": "next build",
+    "start": "next start --port 3000",
+    "lint": "eslint src --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "echo 'E2E tests are wired up in Step 11.'"
+  },
+  "dependencies": {
+    "@csm-chat/shared": "workspace:*",
+    "@radix-ui/react-dialog": "^1.1.2",
+    "@radix-ui/react-label": "^2.1.0",
+    "@tanstack/react-query": "^5.59.20",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.460.0",
+    "next": "14.2.18",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.1",
+    "sonner": "^1.7.0",
+    "tailwind-merge": "^2.5.4",
+    "zod": "^3.23.8",
+    "zustand": "^5.0.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "eslint-config-next": "14.2.18",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15"
   }
 }
