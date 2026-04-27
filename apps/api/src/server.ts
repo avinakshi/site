@@ -15,6 +15,7 @@ import requestIdPlugin from './plugins/request-id.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
 import authPlugin from './plugins/auth.js';
 import chatAuthPlugin from './plugins/chat-auth.js';
+import { LazyBroadcaster } from './socket/broadcaster.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
@@ -34,7 +35,18 @@ export interface BuildServerOptions {
   version: string;
 }
 
-export async function buildServer(opts: BuildServerOptions): Promise<FastifyInstance> {
+export interface BuiltServer {
+  app: FastifyInstance;
+  /** Cross-cutting fan-out wired by attachSocketServer post-listen. */
+  broadcaster: LazyBroadcaster;
+  /** Services exported so the socket layer can reuse them. */
+  services: {
+    tokenService: ReturnType<typeof buildTokenService>;
+    messageService: ReturnType<typeof buildMessageService>;
+  };
+}
+
+export async function buildServer(opts: BuildServerOptions): Promise<BuiltServer> {
   const { config, dbClient, version } = opts;
 
   const app = Fastify({
@@ -134,12 +146,14 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
   const clientService = buildClientService({ db: dbClient.db });
   await app.register(clientsRoutes, { clientService });
 
+  const broadcaster = new LazyBroadcaster();
+
   const sessionService = buildSessionService({ db: dbClient.db, config });
-  const messageService = buildMessageService({ db: dbClient.db });
+  const messageService = buildMessageService({ db: dbClient.db, broadcaster });
   await app.register(sessionsRoutes, { clientService, sessionService, messageService });
 
   const tokenService = buildTokenService({ db: dbClient.db, config });
   await app.register(chatRoutes, { db: dbClient.db, config, tokenService, messageService });
 
-  return app;
+  return { app, broadcaster, services: { tokenService, messageService } };
 }

@@ -8,8 +8,12 @@ import {
   type MessageSenderType,
 } from '@csm-chat/shared';
 
+import type { MessageBroadcaster } from '../socket/broadcaster.js';
+
 export interface MessageDeps {
   db: Database;
+  /** Optional fan-out — invoked only on real (non-idempotent) inserts. */
+  broadcaster?: MessageBroadcaster;
 }
 
 export interface RequestContext {
@@ -69,7 +73,7 @@ export interface MessageService {
 }
 
 export function buildMessageService(deps: MessageDeps): MessageService {
-  const { db } = deps;
+  const { db, broadcaster } = deps;
 
   return {
     async send(input, ctx) {
@@ -145,7 +149,10 @@ export function buildMessageService(deps: MessageDeps): MessageService {
         .set({ lastMessageAt: row.createdAt })
         .where(eq(sessions.id, input.sessionId));
 
-      return rowToMessage(row);
+      const message = rowToMessage(row);
+      // Fan-out only on real new inserts; idempotent dups already returned above.
+      broadcaster?.broadcastNewMessage(message);
+      return message;
     },
 
     async list(input) {

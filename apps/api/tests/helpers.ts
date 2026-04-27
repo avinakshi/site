@@ -59,15 +59,15 @@ export async function buildHarness(opts: BuildHarnessOptions = {}): Promise<Test
     await migratePglite(dbClient.db, { migrationsFolder });
   }
 
-  const app = await buildServer({ config, dbClient, version: 'test' });
+  const built = await buildServer({ config, dbClient, version: 'test' });
 
   return {
-    app,
+    app: built.app,
     dbClient,
     config,
     tempDir,
     cleanup: async () => {
-      await app.close();
+      await built.app.close();
       await dbClient.close();
       await rm(tempDir, { recursive: true, force: true });
     },

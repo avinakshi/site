@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { initSentry } from './lib/sentry.js';
 import { buildDbClient } from './db.js';
 import { buildServer } from './server.js';
+import { attachSocketServer } from './socket/index.js';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -20,10 +21,18 @@ async function main(): Promise<void> {
   });
 
   const dbClient = buildDbClient(config);
-  const app = await buildServer({ config, dbClient, version: pkg.version });
+  const built = await buildServer({ config, dbClient, version: pkg.version });
+  const { app, broadcaster, services } = built;
+
+  let socketHandle: { close(): Promise<void> } | null = null;
 
   const onShutdown = async (signal: string): Promise<void> => {
     app.log.warn({ signal }, 'shutting down');
+    try {
+      if (socketHandle) await socketHandle.close();
+    } catch (err) {
+      app.log.error({ err }, 'socket.close failed');
+    }
     try {
       await app.close();
     } catch (err) {
@@ -41,9 +50,20 @@ async function main(): Promise<void> {
 
   try {
     const address = await app.listen({ port: config.PORT, host: '0.0.0.0' });
+
+    // Attach Socket.IO to the live HTTP server now that it's listening.
+    socketHandle = attachSocketServer({
+      httpServer: app.server,
+      config,
+      db: dbClient.db,
+      tokenService: services.tokenService,
+      messageService: services.messageService,
+      broadcaster,
+    });
+
     app.log.info(
       { version: pkg.version, env: config.NODE_ENV, address, dbDriver: dbClient.driver },
-      'csm-chat api ready',
+      'csm-chat api ready (HTTP + WS)',
     );
   } catch (err) {
     app.log.error({ err }, 'failed to start server');
