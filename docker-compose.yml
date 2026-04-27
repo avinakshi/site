@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: csm-chat-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: csm_chat
+      POSTGRES_PASSWORD: csm_chat_dev
+      POSTGRES_DB: csm_chat
+    ports:
+      - '5432:5432'
+    volumes:
+      - csm_chat_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U csm_chat -d csm_chat']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  csm_chat_pgdata:

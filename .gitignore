@@ -41,8 +41,6 @@ coverage/
 playwright-report/
 test-results/
 
-# Drizzle
-packages/db/drizzle/.snapshots/
-
 # Docker / local
 .docker/
+postgres-data/

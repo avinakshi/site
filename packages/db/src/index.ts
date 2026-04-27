@@ -1,2 +1,2 @@
-// Drizzle schema and client — implemented in Step 2 (Database Package).
-export {};
+export * from './schema.js';
+export * from './client.js';

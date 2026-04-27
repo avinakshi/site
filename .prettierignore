@@ -13,3 +13,6 @@ pnpm-lock.yaml
 # Source-of-truth build instructions: never reformat
 CLAUDE.md
 PHASE2_AI_DESIGN.md
+
+# Drizzle-generated migrations and meta snapshots
+packages/db/drizzle/
