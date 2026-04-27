@@ -52,3 +52,5 @@ postgres-data/
 .env.deploy.local
 .env.production.railway
 .env.production.vercel
+
+.vercel
