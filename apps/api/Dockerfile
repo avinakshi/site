@@ -13,7 +13,8 @@
 FROM node:20.18.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
-    NODE_ENV=production
+    NODE_ENV=production \
+    HUSKY=0
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
 
