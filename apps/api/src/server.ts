@@ -16,7 +16,9 @@ import errorHandlerPlugin from './plugins/error-handler.js';
 import authPlugin from './plugins/auth.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
+import usersRoutes from './routes/users.js';
 import { buildAuthService } from './services/auth.service.js';
+import { buildUserService } from './services/user.service.js';
 
 export interface BuildServerOptions {
   config: Config;
@@ -116,6 +118,9 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
 
   const authService = buildAuthService({ db: dbClient.db, config });
   await app.register(authRoutes, { authService, config });
+
+  const userService = buildUserService({ db: dbClient.db, config });
+  await app.register(usersRoutes, { userService });
 
   return app;
 }
