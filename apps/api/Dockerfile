@@ -13,7 +13,6 @@
 FROM node:20.18.0-bookworm-slim AS base
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
-    NODE_ENV=production \
     HUSKY=0
 RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 WORKDIR /app
@@ -49,6 +48,12 @@ RUN groupadd --system --gid 1001 nodejs && \
 USER nodeapp
 
 EXPOSE 4000
+
+# NODE_ENV is intentionally NOT set in earlier stages so pnpm installs
+# devDependencies (tsx, drizzle-kit) — needed for db:migrate at predeploy
+# and tsx-runtime for the API itself. The actual runtime config is
+# production-mode via the env var injected by Railway.
+ENV NODE_ENV=production
 
 # Railway / Fly / etc. typically pass PORT — config.ts already coerces it.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
