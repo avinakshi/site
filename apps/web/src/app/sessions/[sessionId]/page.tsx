@@ -89,6 +89,19 @@ export default function SessionDetailPage() {
       const sock = connectAsCsm(token);
       socketRef.current = sock;
 
+      // Join this session's broadcast room. The server auto-joins CSMs only
+      // to rooms for sessions where assignedCsmId === userId; sessions
+      // created with no assignedCsmId aren't in that set, so without this
+      // explicit join the CSM would receive no message:new events at all.
+      sock.on('connect', () => {
+        sock.emit('session:join', { sessionId }, (resp: { ok: boolean }) => {
+          if (!resp?.ok) {
+            // Silent — the user will still see optimistic-rendered own
+            // messages via the ack path below, just not the client's replies.
+          }
+        });
+      });
+
       sock.on('message:new', (msg: Message) => {
         if (msg.sessionId !== sessionId) return;
         setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
@@ -131,16 +144,22 @@ export default function SessionDetailPage() {
               (resp: { ok: boolean; message?: Message; error?: string }) => resolve(resp),
             ),
         );
-        if (!ack.ok) {
+        if (ack.ok && ack.message) {
+          // Optimistically render our own message — de-duped by id so that
+          // if the broadcast also arrives later, it doesn't duplicate.
+          const own = ack.message;
+          setMessages((prev) => (prev.some((m) => m.id === own.id) ? prev : [...prev, own]));
+        } else if (!ack.ok) {
           toast.error(`Send failed: ${ack.error ?? 'unknown'}`);
         }
       } else {
-        // REST fallback
-        await api<Message>(`/v1/sessions/${sessionId}/messages`, {
+        // REST fallback — same optimistic merge.
+        const own = await api<Message>(`/v1/sessions/${sessionId}/messages`, {
           method: 'POST',
           auth: true,
           json: { content, clientMessageId },
         });
+        setMessages((prev) => (prev.some((m) => m.id === own.id) ? prev : [...prev, own]));
       }
     } catch (err) {
       if (err instanceof ApiError) toast.error(err.message);
