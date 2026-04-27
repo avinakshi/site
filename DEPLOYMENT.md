@@ -7,6 +7,15 @@ Phase 1 ships to two platforms:
 
 The same Drizzle code in `packages/db` powers both PGlite (local) and real Postgres (prod) — see [README.md → Database](./README.md#database).
 
+## Two ways to deploy
+
+|                                                                                       | First-time setup                                                                                                   | Ongoing                                                                                                                                  |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **Manual**                                                                            | Use the runbooks below — paste env files into Railway / Vercel UI.                                                 | Each push to `main` is auto-deployed by Railway's and Vercel's native GitHub integrations.                                               |
+| **GitHub Actions** ([`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml)) | Add `RAILWAY_TOKEN` + `VERCEL_TOKEN` + `VERCEL_ORG_ID` + `VERCEL_PROJECT_ID` to the repo's GitHub Actions secrets. | Push to `main` → CI runs → on green, Railway and Vercel are deployed by the workflow, then `scripts/smoke.sh` runs against the prod API. |
+
+The GitHub Actions path is the recommended steady state: every commit is verified by tests and then deployed automatically. The manual path is what you use to bring the projects up the first time.
+
 ---
 
 ## Railway (API)
@@ -115,6 +124,29 @@ The script asserts: `/health` 200, `/health/ready` 200, `/v1/auth/login` returns
 - **JWT secrets**: rotate by setting a new `*_SECRET` value on Railway and redeploying. All in-flight access tokens become invalid; CSMs need to log in again. Refresh tokens are unaffected (they're opaque random + sha256 hashed, not JWTs).
 - **Refresh tokens** are revoked individually via `POST /v1/auth/logout` or by setting `revoked_at` on the row. There's no "revoke all for user" endpoint yet — add one if you need it.
 - **Seed admin password** must be changed immediately after first deploy (`PATCH /v1/users/:id`).
+
+---
+
+## GitHub Actions auto-deploy
+
+Once Railway + Vercel exist (you've done the manual first-deploy above), turn on continuous deploys via [`.github/workflows/deploy.yml`](./.github/workflows/deploy.yml). Add these to the repo at https://github.com/avinakshi/site/settings/secrets/actions:
+
+| Secret                              | Where to get it                                                                                                                                                                 | Why                                           |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `RAILWAY_TOKEN`                     | Railway → your project → **Settings → Tokens → Create Token**. **Use a project token, NOT an account token** — project tokens are scoped to one project so a leak is contained. | Lets the workflow run `railway up --ci`.      |
+| `VERCEL_TOKEN`                      | https://vercel.com/account/tokens → **Create Token** → "Full Account" scope.                                                                                                    | Lets the workflow run `vercel deploy --prod`. |
+| `VERCEL_ORG_ID`                     | After running `vercel link` on the project once, copy `orgId` from `apps/web/.vercel/project.json`.                                                                             | Tells `vercel pull` which Vercel team.        |
+| `VERCEL_PROJECT_ID`                 | Same file; copy `projectId`.                                                                                                                                                    | Tells `vercel pull` which project.            |
+| `SMOKE_ADMIN_PASSWORD` _(optional)_ | The admin password you set after seeding (rotate from the seed default).                                                                                                        | Lets the post-deploy smoke job log in.        |
+
+Plus a repository **variable** (Settings → Variables → Actions):
+
+| Variable                         | Value                                                           |
+| -------------------------------- | --------------------------------------------------------------- |
+| `PROD_API_URL`                   | Your Railway domain, e.g. `https://csm-chat-api.up.railway.app` |
+| `SMOKE_ADMIN_EMAIL` _(optional)_ | Defaults to `admin@example.com`                                 |
+
+After those are set, every push to `main` runs **CI → deploy-railway + deploy-vercel → smoke** automatically.
 
 ---
 

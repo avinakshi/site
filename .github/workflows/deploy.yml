@@ -1,0 +1,143 @@
+name: Deploy
+
+# Triggered by every push to main. Runs ONLY after CI passes via the
+# `workflow_run` chain on ci.yml. Both deploys are independent — if
+# Railway is down we still try Vercel and vice versa.
+#
+# Required GitHub secrets (Settings → Secrets and variables → Actions):
+#   RAILWAY_TOKEN     — project-scoped token from
+#                       https://railway.com/project/<id>/settings/tokens
+#                       (NOT the account token from /account/tokens —
+#                       project tokens are scoped to one project so a
+#                       leak is contained.)
+#   VERCEL_TOKEN      — https://vercel.com/account/tokens
+#   VERCEL_ORG_ID     — `vercel link` writes this to .vercel/project.json
+#                       on first link; copy the `orgId` value.
+#   VERCEL_PROJECT_ID — same file; copy the `projectId` value.
+#
+# Optional repository variable (Settings → Variables):
+#   PROD_API_URL      — the Railway domain (e.g.
+#                       https://csm-chat-api.up.railway.app). When set,
+#                       the post-deploy smoke job runs scripts/smoke.sh
+#                       against it.
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  guard:
+    name: Only deploy if CI succeeded
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      ok: ${{ steps.flag.outputs.ok }}
+    steps:
+      - id: flag
+        run: echo "ok=true" >> "$GITHUB_OUTPUT"
+
+  deploy-railway:
+    name: Deploy API to Railway
+    needs: guard
+    if: ${{ needs.guard.outputs.ok == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli@4.35.0
+
+      - name: Railway up
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [[ -z "${RAILWAY_TOKEN}" ]]; then
+            echo "::warning::RAILWAY_TOKEN secret is not set; skipping Railway deploy."
+            exit 0
+          fi
+          # Project-scoped tokens auto-link via env var. `up --ci` waits for
+          # the build, exits non-zero on failure, and surfaces the deploy
+          # logs in the Action output.
+          railway up --ci
+
+  deploy-vercel:
+    name: Deploy web to Vercel
+    needs: guard
+    if: ${{ needs.guard.outputs.ok == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Vercel pull (production)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [[ -z "${VERCEL_TOKEN}" ]]; then
+            echo "::warning::VERCEL_TOKEN secret is not set; skipping Vercel deploy."
+            exit 0
+          fi
+          vercel pull --yes --environment=production --token="${VERCEL_TOKEN}" --cwd apps/web
+
+      - name: Vercel build
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="${VERCEL_TOKEN}" --cwd apps/web
+
+      - name: Vercel deploy (prod)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --token="${VERCEL_TOKEN}" --cwd apps/web
+
+  smoke:
+    name: Post-deploy smoke test
+    needs: [deploy-railway, deploy-vercel]
+    if: always() && needs.deploy-railway.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run scripts/smoke.sh against PROD_API_URL
+        env:
+          API_URL: ${{ vars.PROD_API_URL }}
+          ADMIN_EMAIL: ${{ vars.SMOKE_ADMIN_EMAIL || 'admin@example.com' }}
+          SEED_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
+        run: |
+          if [[ -z "${API_URL}" || -z "${SEED_PASSWORD}" ]]; then
+            echo "::warning::PROD_API_URL var or SMOKE_ADMIN_PASSWORD secret missing; skipping smoke test."
+            exit 0
+          fi
+          chmod +x scripts/smoke.sh
+          ./scripts/smoke.sh

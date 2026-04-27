@@ -5,6 +5,7 @@
     "dockerfilePath": "apps/api/Dockerfile"
   },
   "deploy": {
+    "preDeployCommand": ["pnpm --filter @csm-chat/db db:migrate"],
     "startCommand": "pnpm --filter @csm-chat/api start",
     "healthcheckPath": "/health/ready",
     "healthcheckTimeout": 30,
