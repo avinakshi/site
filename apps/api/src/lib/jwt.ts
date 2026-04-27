@@ -81,6 +81,45 @@ export async function verifySessionJwt(
   return { sub: payload.sub, did: payload.did };
 }
 
+// ─── Session URL token (the long-lived link a CSM sends to a client) ───
+// Signed with SESSION_TOKEN_SECRET (distinct from SESSION_JWT_SECRET, which
+// is the short-lived chat session JWT issued AFTER /chat/verify).
+
+export interface SessionUrlTokenPayload {
+  /** Session UUID. Stored as `sub`. */
+  sid: string;
+  /** Token version — bumped if we ever invalidate all in-flight URL tokens. */
+  ver: 1;
+}
+
+export async function signSessionUrlToken(
+  payload: SessionUrlTokenPayload,
+  secret: string,
+  ttlSec: number,
+): Promise<string> {
+  return new SignJWT({ ver: payload.ver })
+    .setProtectedHeader({ alg: ALG })
+    .setIssuer(ISSUER)
+    .setAudience('csm-chat-url')
+    .setSubject(payload.sid)
+    .setIssuedAt()
+    .setExpirationTime(`${ttlSec}s`)
+    .sign(key(secret));
+}
+
+export async function verifySessionUrlToken(
+  token: string,
+  secret: string,
+): Promise<SessionUrlTokenPayload> {
+  const { payload } = await jwtVerify(token, key(secret), {
+    issuer: ISSUER,
+    audience: 'csm-chat-url',
+  });
+  if (typeof payload.sub !== 'string') throw new Error('url token missing sub');
+  if (payload.ver !== 1) throw new Error('url token bad version');
+  return { sid: payload.sub, ver: 1 };
+}
+
 // ─── Discriminate jose error kinds ──────────────────────────────────────
 
 export function isExpiredJwt(err: unknown): boolean {

@@ -17,8 +17,12 @@ import authPlugin from './plugins/auth.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
+import clientsRoutes from './routes/clients.js';
+import sessionsRoutes from './routes/sessions.js';
 import { buildAuthService } from './services/auth.service.js';
 import { buildUserService } from './services/user.service.js';
+import { buildClientService } from './services/client.service.js';
+import { buildSessionService } from './services/session.service.js';
 
 export interface BuildServerOptions {
   config: Config;
@@ -121,6 +125,12 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
 
   const userService = buildUserService({ db: dbClient.db, config });
   await app.register(usersRoutes, { userService });
+
+  const clientService = buildClientService({ db: dbClient.db });
+  await app.register(clientsRoutes, { clientService });
+
+  const sessionService = buildSessionService({ db: dbClient.db, config });
+  await app.register(sessionsRoutes, { clientService, sessionService });
 
   return app;
 }
