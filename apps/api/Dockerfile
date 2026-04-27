@@ -1,0 +1,56 @@
+# ──────────────────────────────────────────────────────────────────────
+# Multi-stage build for the Fastify API in this pnpm workspace.
+# Builds from the repo root so workspace deps (@csm-chat/db,
+# @csm-chat/shared) resolve correctly.
+#
+# Build context: repo root
+#   docker build -t csm-chat-api -f apps/api/Dockerfile .
+#
+# Railway: set the service's Dockerfile path to `apps/api/Dockerfile`
+# and Build context to the repo root.
+# ──────────────────────────────────────────────────────────────────────
+
+FROM node:20.18.0-bookworm-slim AS base
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NODE_ENV=production
+RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
+WORKDIR /app
+
+# ── deps ─────────────────────────────────────────────────────────────
+# Install with frozen lockfile so the deploy is byte-identical to the
+# committed pnpm-lock.yaml. Allow bcrypt + esbuild postinstall scripts
+# (already in pnpm.onlyBuiltDependencies).
+FROM base AS deps
+COPY pnpm-lock.yaml pnpm-workspace.yaml package.json turbo.json tsconfig.base.json ./
+COPY packages/db/package.json ./packages/db/
+COPY packages/shared/package.json ./packages/shared/
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+RUN pnpm install --frozen-lockfile --filter @csm-chat/api...
+
+# ── runtime ──────────────────────────────────────────────────────────
+FROM base AS runner
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
+
+COPY tsconfig.base.json package.json pnpm-workspace.yaml turbo.json ./
+COPY packages/db ./packages/db
+COPY packages/shared ./packages/shared
+COPY apps/api ./apps/api
+
+# Run as non-root.
+RUN groupadd --system --gid 1001 nodejs && \
+    useradd --system --uid 1001 --gid nodejs nodeapp && \
+    chown -R nodeapp:nodejs /app
+USER nodeapp
+
+EXPOSE 4000
+
+# Railway / Fly / etc. typically pass PORT — config.ts already coerces it.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD node -e "require('http').get('http://127.0.0.1:' + (process.env.PORT || 4000) + '/health/ready', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+
+CMD ["pnpm", "--filter", "@csm-chat/api", "start"]
