@@ -150,8 +150,14 @@ export const sessionDevices = pgTable(
     lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    // MVP: one device per session
-    sessionUniqueIdx: uniqueIndex('session_devices_session_unique_idx').on(t.sessionId),
+    // Multiple devices per session are allowed (one row per browser/device
+    // per session). Uniqueness is on the (sessionId, deviceId) pair so
+    // a re-visit from the same browser idempotently reuses its row.
+    sessionDeviceUniqueIdx: uniqueIndex('session_devices_session_device_unique_idx').on(
+      t.sessionId,
+      t.deviceId,
+    ),
+    sessionIdx: index('session_devices_session_idx').on(t.sessionId),
     deviceIdx: index('session_devices_device_idx').on(t.deviceId),
   }),
 );

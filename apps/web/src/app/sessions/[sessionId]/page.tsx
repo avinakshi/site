@@ -26,10 +26,13 @@ export default function SessionDetailPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [csmOnline, setCsmOnline] = useState(true);
+  const [clientTyping, setClientTyping] = useState(false);
   const [closing, setClosing] = useState(false);
 
   const socketRef = useRef<ChatSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingEmitAtRef = useRef<number>(0);
 
   const loadDetail = useCallback(async () => {
     try {
@@ -105,11 +108,19 @@ export default function SessionDetailPage() {
       sock.on('message:new', (msg: Message) => {
         if (msg.sessionId !== sessionId) return;
         setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        // Any new message from the client ends their typing indicator.
+        if (msg.senderType === 'client') setClientTyping(false);
       });
       sock.on('presence:csm', (info: { online: boolean }) => {
         // For the dashboard, "presence:csm" tracks whether ANY CSM is connected to
         // this session. We don't show our own presence to ourselves.
         setCsmOnline(info.online);
+      });
+      sock.on('typing:other', (info: { from: string; sessionId: string }) => {
+        if (info.from !== 'client' || info.sessionId !== sessionId) return;
+        setClientTyping(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setClientTyping(false), 4000);
       });
       sock.on('connect_error', (err) => {
         toast.error(`WS connect: ${err.message}`);
@@ -190,6 +201,15 @@ export default function SessionDetailPage() {
     }
   }
 
+  function emitTyping(): void {
+    const sock = socketRef.current;
+    if (!sock?.connected) return;
+    const now = Date.now();
+    if (now - lastTypingEmitAtRef.current < 2000) return;
+    lastTypingEmitAtRef.current = now;
+    sock.emit('typing:start', { sessionId });
+  }
+
   if (!user) return null;
 
   const isClosed = detail?.status === 'closed' || detail?.status === 'expired';
@@ -262,6 +282,17 @@ export default function SessionDetailPage() {
                 </div>
               );
             })}
+            {clientTyping && (
+              <div className="flex justify-start">
+                <div className="rounded-lg bg-background px-3 py-2 shadow-sm">
+                  <div className="flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground" />
+                  </div>
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -270,7 +301,10 @@ export default function SessionDetailPage() {
           <div className="flex items-end gap-2">
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (e.target.value) emitTyping();
+              }}
               onKeyDown={handleKeyDown}
               rows={1}
               disabled={isClosed}

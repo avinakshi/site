@@ -98,6 +98,32 @@ export function registerSocketHandlers(deps: HandlerDeps): void {
         return;
       }
       socket.join(`session:${sessionId}`);
+      // Announce CSM-online to anyone listening on this session room
+      // (clients viewing /c/<token> get presence:csm { online: true }).
+      broadcaster.broadcastCsmPresence(sessionId, true, new Date().toISOString());
+      ack?.({ ok: true });
+    });
+
+    // Typing indicator. Either side can fire typing:start; the server
+    // re-emits as typing:other to everyone else in the same session room.
+    // Clients keep a 4-second sliding-window timeout — no typing:stop
+    // event is needed.
+    socket.on('typing:start', (payload: unknown, ack?: (resp: unknown) => void) => {
+      let sid: string | null = null;
+      let from: 'client' | 'csm';
+      if (socket.data.identityType === 'client') {
+        sid = socket.data.sessionId;
+        from = 'client';
+      } else {
+        from = 'csm';
+        const incoming = (payload as { sessionId?: unknown })?.sessionId;
+        if (typeof incoming === 'string') sid = incoming;
+      }
+      if (!sid) {
+        ack?.({ ok: false, error: 'VALIDATION_ERROR' });
+        return;
+      }
+      ns.to(`session:${sid}`).except(socket.id).emit('typing:other', { from, sessionId: sid });
       ack?.({ ok: true });
     });
 

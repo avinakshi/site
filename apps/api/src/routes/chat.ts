@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type { FastifyPluginAsync } from 'fastify';
 import { clients, sessionDevices, sessions, users, type Database } from '@csm-chat/db';
 import {
@@ -63,33 +63,40 @@ const chatRoutes: FastifyPluginAsync<ChatRoutesOptions> = async (app, opts) => {
       // Steps a–d: signature, exp, hash exists, status open.
       const session = await tokenService.verifySessionToken(token, ctx);
 
-      // Step e: device cookie binding (one device per session).
+      // Step e: device cookie binding. Original Phase 1 spec was
+      // "one device per session" (DEVICE_MISMATCH). Relaxed to
+      // "one row per (session, device)": each browser/device gets
+      // its own session_devices row. Multiple devices can share a
+      // chat link; they're individually identifiable by the
+      // csm_chat_device cookie + WS handshake.
       const cookieDeviceId = req.cookies[DEVICE_COOKIE];
-      const existingDevices = await db
-        .select()
-        .from(sessionDevices)
-        .where(eq(sessionDevices.sessionId, session.id))
-        .limit(1);
-      const existingDevice = existingDevices[0];
-
       let deviceId: string;
       let isFirstVisit = false;
 
+      // Try to match the cookie to an existing device row for this session.
+      let existingDevice: typeof sessionDevices.$inferSelect | undefined;
+      if (cookieDeviceId) {
+        const matched = await db
+          .select()
+          .from(sessionDevices)
+          .where(
+            and(
+              eq(sessionDevices.sessionId, session.id),
+              eq(sessionDevices.deviceId, cookieDeviceId),
+            ),
+          )
+          .limit(1);
+        existingDevice = matched[0];
+      }
+
       if (existingDevice) {
-        if (!cookieDeviceId || cookieDeviceId !== existingDevice.deviceId) {
-          throw createProblem('DEVICE_MISMATCH', {
-            requestId: req.id,
-            instance: req.url,
-            detail: 'This session is bound to another device.',
-          });
-        }
         deviceId = existingDevice.deviceId;
         await db
           .update(sessionDevices)
           .set({ lastSeenAt: new Date() })
           .where(eq(sessionDevices.id, existingDevice.id));
       } else {
-        // First visit — register device, flip session to active.
+        // No matching device row → register this browser as a fresh device.
         deviceId = randomUUID();
         isFirstVisit = true;
         await db.insert(sessionDevices).values({

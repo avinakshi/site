@@ -27,12 +27,15 @@ export default function ClientChatPage() {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [csmOnline, setCsmOnline] = useState(false);
+  const [csmTyping, setCsmTyping] = useState(false);
   const [conn, setConn] = useState<ConnState>('connecting');
 
   const socketRef = useRef<ChatSocket | null>(null);
   const lastSeenMessageIdRef = useRef<string | null>(null);
   const sessionJwtRef = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTypingEmitAtRef = useRef<number>(0);
   // Flag prevents double-mount cleanup in React Strict Mode dev from racing
   // initial verify.
   const verifyAttemptedRef = useRef(false);
@@ -125,9 +128,17 @@ export default function ClientChatPage() {
           return [...prev, msg];
         });
         lastSeenMessageIdRef.current = msg.id;
+        // A message arriving from the other side ends their typing.
+        if (msg.senderType !== 'client') setCsmTyping(false);
       });
       sock.on('presence:csm', (info: { online: boolean }) => {
         setCsmOnline(info.online);
+      });
+      sock.on('typing:other', (info: { from: string }) => {
+        if (info.from !== 'csm') return;
+        setCsmTyping(true);
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => setCsmTyping(false), 4000);
       });
     }
 
@@ -241,6 +252,16 @@ export default function ClientChatPage() {
     }
   }
 
+  // Throttled typing emit (at most once every 2s while typing).
+  function emitTyping(): void {
+    const sock = socketRef.current;
+    if (!sock?.connected) return;
+    const now = Date.now();
+    if (now - lastTypingEmitAtRef.current < 2000) return;
+    lastTypingEmitAtRef.current = now;
+    sock.emit('typing:start', {});
+  }
+
   // ── Render: error states ────────────────────────────────────────────
   if (verifyState.kind === 'loading') {
     return (
@@ -303,6 +324,18 @@ export default function ClientChatPage() {
                 </div>
               );
             })}
+            {csmTyping && (
+              <div className="flex justify-start">
+                <div className="rounded-lg bg-background px-3 py-2 text-sm text-muted-foreground shadow-sm">
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce">·</span>
+                    <span className="animate-bounce [animation-delay:150ms]">·</span>
+                    <span className="animate-bounce [animation-delay:300ms]">·</span>
+                  </span>{' '}
+                  typing
+                </div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         </div>
@@ -311,7 +344,10 @@ export default function ClientChatPage() {
           <div className="flex items-end gap-2">
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                if (e.target.value) emitTyping();
+              }}
               onKeyDown={handleKeyDown}
               rows={1}
               disabled={isClosed}
