@@ -4,10 +4,33 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "echo 'API dev server is wired up in Step 4 (API Foundation).'",
-    "build": "echo 'Build is wired up in Step 4.'",
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
     "lint": "eslint src --max-warnings=0",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'Tests are wired up from Step 5 onward.'"
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@csm-chat/db": "workspace:*",
+    "@csm-chat/shared": "workspace:*",
+    "@fastify/cookie": "^9.4.0",
+    "@fastify/cors": "^9.0.1",
+    "@fastify/helmet": "^11.1.1",
+    "@fastify/rate-limit": "^9.1.0",
+    "@sentry/node": "^8.40.0",
+    "dotenv": "^16.4.5",
+    "drizzle-orm": "^0.36.4",
+    "fastify": "^4.28.1",
+    "fastify-plugin": "^4.5.1",
+    "fastify-type-provider-zod": "^2.0.0",
+    "pino": "^9.5.0",
+    "ulid": "^2.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "pino-pretty": "^11.3.0",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.4"
   }
 }

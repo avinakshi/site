@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { PGlite } from '@electric-sql/pglite';
@@ -43,6 +44,11 @@ export function createDbClient(opts: DbClientOptions): DbClient {
     const stripped = url.replace(/^(file|pglite):(\/\/)?/, '');
     const dataDir =
       stripped === '' || stripped === ':memory:' || stripped === 'memory' ? undefined : stripped;
+    if (dataDir) {
+      // PGlite uses mkdirSync (non-recursive) for the data dir, so the
+      // parent must exist. Create the whole path up-front.
+      mkdirSync(dataDir, { recursive: true });
+    }
     const pglite = new PGlite(dataDir);
     const db = drizzlePglite(pglite, { schema });
     return {
@@ -50,7 +56,12 @@ export function createDbClient(opts: DbClientOptions): DbClient {
       db,
       pglite,
       close: async () => {
-        await pglite.close();
+        if (pglite.closed) return;
+        try {
+          await pglite.close();
+        } catch (err) {
+          if (!/closed/i.test(String(err))) throw err;
+        }
       },
     };
   }
