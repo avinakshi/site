@@ -48,11 +48,19 @@ COPY packages/db ./packages/db
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
 
-# Run as non-root.
+# Run as non-root. --create-home ensures /home/nodeapp exists so
+# corepack can write its cache there at runtime (it pulls package
+# managers on first invocation under that path).
 RUN groupadd --system --gid 1001 nodejs && \
-    useradd --system --uid 1001 --gid nodejs nodeapp && \
-    chown -R nodeapp:nodejs /app
+    useradd --system --uid 1001 --gid nodejs --create-home --home-dir /home/nodeapp nodeapp && \
+    chown -R nodeapp:nodejs /app /home/nodeapp
 USER nodeapp
+
+# Pre-warm corepack as nodeapp so the cache is populated before the
+# pre-deploy/start commands run. Avoids first-run permission/IO issues.
+ENV COREPACK_HOME=/home/nodeapp/.cache/node/corepack
+RUN mkdir -p /home/nodeapp/.cache/node/corepack && \
+    corepack prepare pnpm@9.15.0 --activate
 
 EXPOSE 4000
 
