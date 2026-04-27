@@ -37,7 +37,7 @@ export async function buildHarness(opts: BuildHarnessOptions = {}): Promise<Test
 
   const env = {
     NODE_ENV: 'test',
-    LOG_LEVEL: 'silent',
+    LOG_LEVEL: process.env.TEST_LOG_LEVEL ?? 'silent',
     DATABASE_URL: `file:${tempDir}/db`,
     PORT: '4001',
     JWT_ACCESS_SECRET: 'test-jwt-access-secret-' + 'x'.repeat(40),

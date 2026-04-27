@@ -14,15 +14,19 @@ import type { Config } from './config.js';
 import requestIdPlugin from './plugins/request-id.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
 import authPlugin from './plugins/auth.js';
+import chatAuthPlugin from './plugins/chat-auth.js';
 import healthRoutes from './routes/health.js';
 import authRoutes from './routes/auth.js';
 import usersRoutes from './routes/users.js';
 import clientsRoutes from './routes/clients.js';
 import sessionsRoutes from './routes/sessions.js';
+import chatRoutes from './routes/chat.js';
 import { buildAuthService } from './services/auth.service.js';
 import { buildUserService } from './services/user.service.js';
 import { buildClientService } from './services/client.service.js';
 import { buildSessionService } from './services/session.service.js';
+import { buildTokenService } from './services/token.service.js';
+import { buildMessageService } from './services/message.service.js';
 
 export interface BuildServerOptions {
   config: Config;
@@ -116,6 +120,7 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
 
   // ── Auth plugin (Bearer verifier decorators) ────────────────────────
   await app.register(authPlugin, { accessSecret: config.JWT_ACCESS_SECRET });
+  await app.register(chatAuthPlugin, { sessionJwtSecret: config.SESSION_JWT_SECRET });
 
   // ── Routes ──────────────────────────────────────────────────────────
   await app.register(healthRoutes, { dbClient, version });
@@ -130,7 +135,11 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
   await app.register(clientsRoutes, { clientService });
 
   const sessionService = buildSessionService({ db: dbClient.db, config });
-  await app.register(sessionsRoutes, { clientService, sessionService });
+  const messageService = buildMessageService({ db: dbClient.db });
+  await app.register(sessionsRoutes, { clientService, sessionService, messageService });
+
+  const tokenService = buildTokenService({ db: dbClient.db, config });
+  await app.register(chatRoutes, { db: dbClient.db, config, tokenService, messageService });
 
   return app;
 }

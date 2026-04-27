@@ -3,28 +3,36 @@ import {
   closeSessionRequestSchema,
   createSessionRequestSchema,
   createSessionResponseSchema,
+  listMessagesQuerySchema,
+  listMessagesResponseSchema,
   listSessionsQuerySchema,
   listSessionsResponseSchema,
+  messageSchema,
+  sendMessageRequestSchema,
   sessionDetailSchema,
   sessionIdParamSchema,
   sessionSchema,
   updateSessionRequestSchema,
   type CloseSessionRequest,
   type CreateSessionRequest,
+  type ListMessagesQuery,
   type ListSessionsQuery,
+  type SendMessageRequest,
   type SessionIdParam,
   type UpdateSessionRequest,
 } from '@csm-chat/shared';
 import type { ClientService } from '../services/client.service.js';
+import type { MessageService } from '../services/message.service.js';
 import type { SessionService } from '../services/session.service.js';
 
 export interface SessionsRoutesOptions {
   clientService: ClientService;
   sessionService: SessionService;
+  messageService: MessageService;
 }
 
 const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, opts) => {
-  const { clientService, sessionService } = opts;
+  const { clientService, sessionService, messageService } = opts;
 
   // ── POST /v1/sessions ───────────────────────────────────────────────
   app.post(
@@ -131,6 +139,63 @@ const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, op
         requestId: req.id,
         instance: req.url,
       });
+    },
+  );
+
+  // ── GET /v1/sessions/:sessionId/messages — CSM message history ──────
+  app.get(
+    '/v1/sessions/:sessionId/messages',
+    {
+      preHandler: app.verifyAuth,
+      schema: {
+        params: sessionIdParamSchema,
+        querystring: listMessagesQuerySchema,
+        response: { 200: listMessagesResponseSchema },
+      },
+    },
+    async (req) => {
+      const { sessionId } = req.params as SessionIdParam;
+      const query = req.query as ListMessagesQuery;
+      return messageService.list({
+        sessionId,
+        before: query.before,
+        limit: query.limit,
+      });
+    },
+  );
+
+  // ── POST /v1/sessions/:sessionId/messages — CSM message send ────────
+  app.post(
+    '/v1/sessions/:sessionId/messages',
+    {
+      preHandler: app.verifyAuth,
+      config: {
+        rateLimit: {
+          max: 120,
+          timeWindow: '1 minute',
+          keyGenerator: (req) => req.user?.id ?? req.ip ?? 'unknown',
+        },
+      },
+      schema: {
+        params: sessionIdParamSchema,
+        body: sendMessageRequestSchema,
+        response: { 200: messageSchema },
+      },
+    },
+    async (req) => {
+      if (!req.user) throw new Error('preHandler did not set req.user');
+      const { sessionId } = req.params as SessionIdParam;
+      const body = req.body as SendMessageRequest;
+      return messageService.send(
+        {
+          sessionId,
+          senderType: 'csm',
+          senderId: req.user.id,
+          content: body.content,
+          clientMessageId: body.clientMessageId,
+        },
+        { requestId: req.id, instance: req.url },
+      );
     },
   );
 };
