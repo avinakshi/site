@@ -16,7 +16,18 @@
 .env.*
 !.env.example
 
-apps/web
+# apps/web/src is excluded — only the package.json is needed at Docker
+# build time so the pnpm workspace stays consistent. Without
+# apps/web/package.json, `pnpm install --filter @csm-chat/api...` fails
+# trying to resolve the workspace.
+apps/web/src
+apps/web/.next
+apps/web/.vercel
+apps/web/public
+apps/web/next.config.mjs
+apps/web/tailwind.config.ts
+apps/web/postcss.config.mjs
+apps/web/next-env.d.ts
 
 CLAUDE.md
 PHASE2_AI_DESIGN.md
