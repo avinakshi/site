@@ -1,18 +1,24 @@
 import { mkdirSync } from 'node:fs';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core';
+import type { ExtractTablesWithRelations } from 'drizzle-orm';
 import { PGlite } from '@electric-sql/pglite';
 import pg from 'pg';
 import * as schema from './schema.js';
 
 export type Schema = typeof schema;
+type SchemaRelations = ExtractTablesWithRelations<Schema>;
 
 /**
- * App-level type. Drizzle's query API is identical across drivers, so most
- * call sites can use this directly. For driver-specific operations (like
- * `migrate`), discriminate via `client.driver`.
+ * Driver-agnostic Drizzle Postgres database. Both NodePgDatabase and
+ * PgliteDatabase extend this, so service code can accept `Database`
+ * without caring about the underlying driver.
+ *
+ * For driver-specific operations (like `migrate`), discriminate via
+ * `client.driver` on the DbClient.
  */
-export type Database = NodePgDatabase<Schema> | PgliteDatabase<Schema>;
+export type Database = PgDatabase<PgQueryResultHKT, Schema, SchemaRelations>;
 
 export interface DbClientOptions {
   connectionString: string;

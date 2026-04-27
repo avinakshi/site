@@ -36,9 +36,14 @@ const errorHandler: FastifyPluginAsync<ErrorHandlerOptions> = async (app, opts) 
     const requestId = req.id;
     const instance = req.url;
 
-    // 1. Already a ProblemError — pass through.
+    // 1. Already a ProblemError — pass through, injecting the API's
+    //    baseUrl into the `type` URI so service-thrown problems use the
+    //    deployment's domain rather than the placeholder default.
     if (err instanceof ProblemError) {
-      reply.status(err.status).header('content-type', PROBLEM_CONTENT_TYPE).send(err.toJSON());
+      reply
+        .status(err.status)
+        .header('content-type', PROBLEM_CONTENT_TYPE)
+        .send(err.toJSON(baseUrl));
       return;
     }
 

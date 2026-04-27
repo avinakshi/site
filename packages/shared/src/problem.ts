@@ -80,9 +80,14 @@ export class ProblemError extends Error {
     this.baseUrl = opts.baseUrl;
   }
 
-  /** Serialize to the on-the-wire RFC 7807 body. */
-  toJSON(): Problem {
-    const base = this.baseUrl ?? 'https://api.example.com';
+  /**
+   * Serialize to the on-the-wire RFC 7807 body. Pass `overrideBaseUrl`
+   * to inject a deployment-specific base — used by the API's error
+   * handler so service-thrown Problems get the right `type` URI without
+   * services needing to know about config.
+   */
+  toJSON(overrideBaseUrl?: string): Problem {
+    const base = overrideBaseUrl ?? this.baseUrl ?? 'https://api.example.com';
     const slug = this.code.toLowerCase().replace(/_/g, '-');
     return {
       type: `${base.replace(/\/+$/, '')}/errors/${slug}`,

@@ -13,7 +13,10 @@ import type { DbClient } from '@csm-chat/db';
 import type { Config } from './config.js';
 import requestIdPlugin from './plugins/request-id.js';
 import errorHandlerPlugin from './plugins/error-handler.js';
+import authPlugin from './plugins/auth.js';
 import healthRoutes from './routes/health.js';
+import authRoutes from './routes/auth.js';
+import { buildAuthService } from './services/auth.service.js';
 
 export interface BuildServerOptions {
   config: Config;
@@ -40,7 +43,7 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
         : {}),
     },
     disableRequestLogging: config.NODE_ENV === 'test',
-    bodyLimit: 1024 * 1024, // 1 MB; per-route overrides for chat.
+    bodyLimit: 1024 * 1024,
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
@@ -53,7 +56,7 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  // 2. Helmet — security headers
+  // 2. Helmet
   await app.register(fastifyHelmet, {
     contentSecurityPolicy: {
       directives: {
@@ -82,27 +85,37 @@ export async function buildServer(opts: BuildServerOptions): Promise<FastifyInst
     },
   });
 
-  // 4. Request ID — sets X-Request-Id on every response.
+  // 4. Request ID
   await app.register(requestIdPlugin);
 
-  // 5. Rate limit — defaults; per-route overrides set in their respective steps.
-  await app.register(fastifyRateLimit, {
-    global: true,
-    max: 60,
-    timeWindow: '1 minute',
-    allowList: (req) => req.url.startsWith('/health'),
-    keyGenerator: (req) => req.ip ?? 'unknown',
-  });
+  // 5. Rate limit (defaults; per-route overrides set in their routes).
+  // Skipped in test mode so service-layer tests (lockout, rotation, etc.)
+  // can exercise the underlying logic without 429-before-401 false fails.
+  if (config.NODE_ENV !== 'test') {
+    await app.register(fastifyRateLimit, {
+      global: true,
+      max: 60,
+      timeWindow: '1 minute',
+      allowList: (req) => req.url.startsWith('/health'),
+      keyGenerator: (req) => req.ip ?? 'unknown',
+    });
+  }
 
-  // 6. Logger — already configured via Fastify constructor above.
+  // 6. Logger — already configured.
 
-  // 7. fastify-type-provider-zod — already wired via setValidatorCompiler.
+  // 7. fastify-type-provider-zod — already wired.
 
-  // 8. Error handler — RFC 7807 Problem responses.
+  // 8. Error handler
   await app.register(errorHandlerPlugin, { baseUrl: config.API_BASE_URL });
 
-  // ── Routes ───────────────────────────────────────────────────────────
+  // ── Auth plugin (Bearer verifier decorators) ────────────────────────
+  await app.register(authPlugin, { accessSecret: config.JWT_ACCESS_SECRET });
+
+  // ── Routes ──────────────────────────────────────────────────────────
   await app.register(healthRoutes, { dbClient, version });
+
+  const authService = buildAuthService({ db: dbClient.db, config });
+  await app.register(authRoutes, { authService, config });
 
   return app;
 }
