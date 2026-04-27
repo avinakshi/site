@@ -62,7 +62,8 @@ function rowToUser(row: typeof users.$inferSelect): User {
 export interface AuthService {
   login(input: LoginInput, ctx: RequestContext): Promise<LoginResult>;
   refresh(refreshToken: string, ctx: RequestContext): Promise<RefreshResult>;
-  logout(refreshToken: string, ctx: RequestContext): Promise<void>;
+  /** Returns the userId that owned the revoked token, if any. Idempotent. */
+  logout(refreshToken: string, ctx: RequestContext): Promise<{ userId: string | null }>;
   me(userId: string, ctx: RequestContext): Promise<User>;
   register(input: RegisterInput, ctx: RequestContext): Promise<User>;
 }
@@ -229,12 +230,18 @@ export function buildAuthService(deps: AuthDeps): AuthService {
 
     async logout(refreshToken, _ctx) {
       // Idempotent: missing/invalid tokens silently succeed (logout never errors).
-      if (!refreshToken) return;
+      if (!refreshToken) return { userId: null };
       const tokenHash = sha256Hex(refreshToken);
+      const matching = await db
+        .select({ userId: refreshTokens.userId })
+        .from(refreshTokens)
+        .where(and(eq(refreshTokens.tokenHash, tokenHash), isNull(refreshTokens.revokedAt)))
+        .limit(1);
       await db
         .update(refreshTokens)
         .set({ revokedAt: new Date(), revokedReason: 'user_logout' })
         .where(and(eq(refreshTokens.tokenHash, tokenHash), isNull(refreshTokens.revokedAt)));
+      return { userId: matching[0]?.userId ?? null };
     },
 
     async me(userId, ctx) {

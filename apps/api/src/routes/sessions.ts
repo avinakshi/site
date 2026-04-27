@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import {
   closeSessionRequestSchema,
   createSessionRequestSchema,
@@ -24,15 +24,25 @@ import {
 import type { ClientService } from '../services/client.service.js';
 import type { MessageService } from '../services/message.service.js';
 import type { SessionService } from '../services/session.service.js';
+import type { AuditService } from '../services/audit.service.js';
 
 export interface SessionsRoutesOptions {
   clientService: ClientService;
   sessionService: SessionService;
   messageService: MessageService;
+  auditService: AuditService;
+}
+
+function reqMeta(req: FastifyRequest) {
+  return {
+    requestId: req.id,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'] ?? null,
+  };
 }
 
 const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, opts) => {
-  const { clientService, sessionService, messageService } = opts;
+  const { clientService, sessionService, messageService, auditService } = opts;
 
   // ── POST /v1/sessions ───────────────────────────────────────────────
   app.post(
@@ -65,6 +75,19 @@ const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, op
         },
         ctx,
       );
+      await auditService.record({
+        action: 'session.create',
+        actorType: 'user',
+        actorId: req.user.id,
+        targetType: 'session',
+        targetId: result.session.id,
+        metadata: {
+          clientId: client.id,
+          assignedCsmId: result.session.assignedCsmId,
+          expiresInDays: body.expiresInDays,
+        },
+        ...reqMeta(req),
+      });
       reply.status(201);
       return result;
     },
@@ -116,7 +139,20 @@ const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, op
     async (req) => {
       const { sessionId } = req.params as SessionIdParam;
       const body = req.body as UpdateSessionRequest;
-      return sessionService.update(sessionId, body, { requestId: req.id, instance: req.url });
+      const result = await sessionService.update(sessionId, body, {
+        requestId: req.id,
+        instance: req.url,
+      });
+      await auditService.record({
+        action: 'session.update',
+        actorType: 'user',
+        actorId: req.user?.id ?? null,
+        targetType: 'session',
+        targetId: sessionId,
+        metadata: { fields: Object.keys(body) },
+        ...reqMeta(req),
+      });
+      return result;
     },
   );
 
@@ -135,10 +171,20 @@ const sessionsRoutes: FastifyPluginAsync<SessionsRoutesOptions> = async (app, op
       if (!req.user) throw new Error('preHandler did not set req.user');
       const { sessionId } = req.params as SessionIdParam;
       const body = req.body as CloseSessionRequest;
-      return sessionService.close(sessionId, body.reason, req.user.id, {
+      const closed = await sessionService.close(sessionId, body.reason, req.user.id, {
         requestId: req.id,
         instance: req.url,
       });
+      await auditService.record({
+        action: 'session.close',
+        actorType: 'user',
+        actorId: req.user.id,
+        targetType: 'session',
+        targetId: sessionId,
+        metadata: body.reason ? { reason: body.reason } : {},
+        ...reqMeta(req),
+      });
+      return closed;
     },
   );
 

@@ -28,6 +28,7 @@ import { buildClientService } from './services/client.service.js';
 import { buildSessionService } from './services/session.service.js';
 import { buildTokenService } from './services/token.service.js';
 import { buildMessageService } from './services/message.service.js';
+import { buildAuditService } from './services/audit.service.js';
 
 export interface BuildServerOptions {
   config: Config;
@@ -137,23 +138,35 @@ export async function buildServer(opts: BuildServerOptions): Promise<BuiltServer
   // ── Routes ──────────────────────────────────────────────────────────
   await app.register(healthRoutes, { dbClient, version });
 
+  const broadcaster = new LazyBroadcaster();
+  const auditService = buildAuditService({ db: dbClient.db });
+
   const authService = buildAuthService({ db: dbClient.db, config });
-  await app.register(authRoutes, { authService, config });
+  await app.register(authRoutes, { authService, config, auditService });
 
   const userService = buildUserService({ db: dbClient.db, config });
-  await app.register(usersRoutes, { userService });
+  await app.register(usersRoutes, { userService, auditService });
 
   const clientService = buildClientService({ db: dbClient.db });
   await app.register(clientsRoutes, { clientService });
 
-  const broadcaster = new LazyBroadcaster();
-
   const sessionService = buildSessionService({ db: dbClient.db, config });
   const messageService = buildMessageService({ db: dbClient.db, broadcaster });
-  await app.register(sessionsRoutes, { clientService, sessionService, messageService });
+  await app.register(sessionsRoutes, {
+    clientService,
+    sessionService,
+    messageService,
+    auditService,
+  });
 
   const tokenService = buildTokenService({ db: dbClient.db, config });
-  await app.register(chatRoutes, { db: dbClient.db, config, tokenService, messageService });
+  await app.register(chatRoutes, {
+    db: dbClient.db,
+    config,
+    tokenService,
+    messageService,
+    auditService,
+  });
 
   return { app, broadcaster, services: { tokenService, messageService } };
 }

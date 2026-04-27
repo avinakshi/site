@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import {
   createProblem,
   createUserRequestSchema,
@@ -13,13 +13,23 @@ import {
   type UserIdParam,
 } from '@csm-chat/shared';
 import type { UserService } from '../services/user.service.js';
+import type { AuditService } from '../services/audit.service.js';
 
 export interface UsersRoutesOptions {
   userService: UserService;
+  auditService: AuditService;
+}
+
+function reqMeta(req: FastifyRequest) {
+  return {
+    requestId: req.id,
+    ipAddress: req.ip,
+    userAgent: req.headers['user-agent'] ?? null,
+  };
 }
 
 const usersRoutes: FastifyPluginAsync<UsersRoutesOptions> = async (app, opts) => {
-  const { userService } = opts;
+  const { userService, auditService } = opts;
 
   // GET /v1/users — admin only
   app.get(
@@ -50,6 +60,15 @@ const usersRoutes: FastifyPluginAsync<UsersRoutesOptions> = async (app, opts) =>
     async (req, reply) => {
       const body = req.body as CreateUserRequest;
       const created = await userService.create(body, { requestId: req.id, instance: req.url });
+      await auditService.record({
+        action: 'user.create',
+        actorType: 'user',
+        actorId: req.user?.id ?? null,
+        targetType: 'user',
+        targetId: created.id,
+        metadata: { email: created.email, role: created.role },
+        ...reqMeta(req),
+      });
       reply.status(201);
       return created;
     },
@@ -93,7 +112,20 @@ const usersRoutes: FastifyPluginAsync<UsersRoutesOptions> = async (app, opts) =>
     async (req) => {
       const { userId } = req.params as UserIdParam;
       const body = req.body as UpdateUserRequest;
-      return userService.update(userId, body, { requestId: req.id, instance: req.url });
+      const updated = await userService.update(userId, body, {
+        requestId: req.id,
+        instance: req.url,
+      });
+      await auditService.record({
+        action: 'user.update',
+        actorType: 'user',
+        actorId: req.user?.id ?? null,
+        targetType: 'user',
+        targetId: userId,
+        metadata: { fields: Object.keys(body) },
+        ...reqMeta(req),
+      });
+      return updated;
     },
   );
 
@@ -107,6 +139,14 @@ const usersRoutes: FastifyPluginAsync<UsersRoutesOptions> = async (app, opts) =>
     async (req, reply) => {
       const { userId } = req.params as UserIdParam;
       await userService.softDelete(userId, { requestId: req.id, instance: req.url });
+      await auditService.record({
+        action: 'user.delete',
+        actorType: 'user',
+        actorId: req.user?.id ?? null,
+        targetType: 'user',
+        targetId: userId,
+        ...reqMeta(req),
+      });
       reply.status(204);
       return null;
     },

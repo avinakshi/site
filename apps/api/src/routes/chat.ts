@@ -18,6 +18,7 @@ import {
 import type { Config } from '../config.js';
 import type { TokenService } from '../services/token.service.js';
 import type { MessageService } from '../services/message.service.js';
+import type { AuditService } from '../services/audit.service.js';
 
 export const DEVICE_COOKIE = 'csm_chat_device';
 
@@ -29,10 +30,11 @@ export interface ChatRoutesOptions {
   config: Config;
   tokenService: TokenService;
   messageService: MessageService;
+  auditService: AuditService;
 }
 
 const chatRoutes: FastifyPluginAsync<ChatRoutesOptions> = async (app, opts) => {
-  const { db, config, tokenService, messageService } = opts;
+  const { db, config, tokenService, messageService, auditService } = opts;
 
   const deviceCookieOpts = {
     path: '/v1/chat',
@@ -129,6 +131,18 @@ const chatRoutes: FastifyPluginAsync<ChatRoutesOptions> = async (app, opts) => {
           .limit(1);
         csmName = csmRow[0]?.name ?? null;
       }
+
+      await auditService.record({
+        action: 'chat.verify',
+        actorType: 'client',
+        actorId: deviceId,
+        targetType: 'session',
+        targetId: session.id,
+        metadata: { firstVisit: isFirstVisit },
+        requestId: req.id,
+        ipAddress: req.ip,
+        userAgent: req.headers['user-agent'] ?? null,
+      });
 
       return {
         sessionId: session.id,
