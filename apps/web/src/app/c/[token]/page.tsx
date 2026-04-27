@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Send } from 'lucide-react';
+import { Paperclip, Send } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { API_URL, ApiError } from '@/lib/api';
 import { chatListMessages, chatSendMessage, chatVerify } from '@/lib/chat-api';
@@ -30,6 +31,13 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function fileIcon(mime: string): string {
+  if (mime === 'application/pdf') return '📕';
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime.includes('word') || mime.includes('msword')) return '📄';
+  return '📎';
+}
+
 function ChatAttachment({
   message,
   sessionJwt,
@@ -38,37 +46,91 @@ function ChatAttachment({
   sessionJwt: string | null;
 }) {
   const att = getAttachment(message);
-  if (!att) return null;
-  const isImage = att.mimeType.startsWith('image/');
+  const url = att ? `${API_URL}/v1/attachments/${att.id}` : null;
+  const isImage = att?.mimeType.startsWith('image/') ?? false;
 
-  async function open(): Promise<void> {
-    if (!sessionJwt) return;
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  useEffect(() => {
+    if (!isImage || !url || !sessionJwt) return;
+    let cancelled = false;
+    let blobUrl: string | null = null;
+    void (async () => {
+      try {
+        const res = await fetch(url, { headers: { authorization: `Bearer ${sessionJwt}` } });
+        if (!res.ok) {
+          if (!cancelled) setImgErr(true);
+          return;
+        }
+        const blob = await res.blob();
+        if (cancelled) return;
+        blobUrl = URL.createObjectURL(blob);
+        setImgUrl(blobUrl);
+      } catch {
+        if (!cancelled) setImgErr(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [isImage, url, sessionJwt]);
+
+  async function openInTab(): Promise<void> {
+    if (!url || !sessionJwt) return;
     try {
-      const res = await fetch(`${API_URL}/v1/attachments/${att!.id}`, {
-        headers: { authorization: `Bearer ${sessionJwt}` },
-      });
+      const res = await fetch(url, { headers: { authorization: `Bearer ${sessionJwt}` } });
       if (!res.ok) return;
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
     } catch {
       /* ignore */
     }
   }
 
+  if (!att) return null;
+
+  if (isImage) {
+    return (
+      <button
+        type="button"
+        onClick={() => void openInTab()}
+        className="block max-w-full overflow-hidden rounded-md"
+      >
+        {imgUrl ? (
+          <img
+            src={imgUrl}
+            alt={att.filename}
+            className="max-h-72 w-auto max-w-full rounded-md object-contain"
+          />
+        ) : imgErr ? (
+          <div className="rounded-md bg-background/20 px-3 py-2 text-xs">
+            Could not load image
+          </div>
+        ) : (
+          <div className="flex h-32 w-48 items-center justify-center rounded-md bg-background/20 text-xs opacity-70">
+            Loading image…
+          </div>
+        )}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
-      onClick={() => void open()}
-      className="block w-full rounded border border-border/40 bg-background/10 px-2 py-1.5 text-left text-xs underline-offset-2 hover:underline"
+      onClick={() => void openInTab()}
+      className="flex w-full max-w-xs items-center gap-2 rounded-md border border-border/40 bg-background/10 px-3 py-2 text-left hover:bg-background/20"
     >
-      <div className="flex items-center gap-2">
-        <span className="truncate font-medium">
-          {isImage ? '🖼️ ' : '📎 '}
-          {att.filename}
-        </span>
-        <span className="ml-auto shrink-0 opacity-70">{formatBytes(att.sizeBytes)}</span>
+      <span className="text-2xl leading-none">{fileIcon(att.mimeType)}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{att.filename}</div>
+        <div className="text-[11px] opacity-70">
+          {formatBytes(att.sizeBytes)} · tap to open
+        </div>
       </div>
     </button>
   );
@@ -92,10 +154,12 @@ export default function ClientChatPage() {
   const [csmOnline, setCsmOnline] = useState(false);
   const [csmTyping, setCsmTyping] = useState(false);
   const [conn, setConn] = useState<ConnState>('connecting');
+  const [uploading, setUploading] = useState(false);
 
   const socketRef = useRef<ChatSocket | null>(null);
   const lastSeenMessageIdRef = useRef<string | null>(null);
   const sessionJwtRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingEmitAtRef = useRef<number>(0);
@@ -315,6 +379,42 @@ export default function ClientChatPage() {
     }
   }
 
+  async function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('File too large (10 MB max)');
+      return;
+    }
+    const jwt = sessionJwtRef.current;
+    if (!jwt) {
+      toast.error('Not connected — try again in a moment.');
+      return;
+    }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`${API_URL}/v1/chat/attachments`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${jwt}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        toast.error('Upload failed');
+        return;
+      }
+      const own = (await res.json()) as Message;
+      setMessages((prev) => (prev.some((m) => m.id === own.id) ? prev : [...prev, own]));
+      lastSeenMessageIdRef.current = own.id;
+    } catch {
+      toast.error('Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   // Throttled typing emit (at most once every 2s while typing).
   function emitTyping(): void {
     const sock = socketRef.current;
@@ -407,7 +507,24 @@ export default function ClientChatPage() {
         </div>
 
         <div className="border-t border-border bg-background p-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => void handleFilePicked(e)}
+          />
           <div className="flex items-end gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isClosed || uploading}
+              aria-label="Attach file"
+              title="Attach photo, PDF, or document (10 MB max)"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
             <textarea
               value={draft}
               onChange={(e) => {

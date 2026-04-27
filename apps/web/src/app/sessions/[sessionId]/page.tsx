@@ -36,6 +36,13 @@ function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function fileIcon(mime: string): string {
+  if (mime === 'application/pdf') return '📕';
+  if (mime.startsWith('image/')) return '🖼️';
+  if (mime.includes('word') || mime.includes('msword')) return '📄';
+  return '📎';
+}
+
 function AttachmentBlock({
   message,
   accessToken,
@@ -44,12 +51,41 @@ function AttachmentBlock({
   accessToken: string | null;
 }) {
   const att = getAttachment(message);
-  if (!att) return null;
-  const url = `${API_URL}/v1/attachments/${att.id}`;
-  const isImage = att.mimeType.startsWith('image/');
+  const url = att ? `${API_URL}/v1/attachments/${att.id}` : null;
+  const isImage = att?.mimeType.startsWith('image/') ?? false;
 
-  async function open(): Promise<void> {
-    // Bytes are auth-gated; fetch with bearer + open as blob URL.
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [imgErr, setImgErr] = useState(false);
+
+  // Auth-fetch images so they render inline. Bytes are auth-gated, so a
+  // plain <img src> would never work with our Bearer-token endpoint.
+  useEffect(() => {
+    if (!isImage || !url || !accessToken) return;
+    let cancelled = false;
+    let blobUrl: string | null = null;
+    void (async () => {
+      try {
+        const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+        if (!res.ok) {
+          if (!cancelled) setImgErr(true);
+          return;
+        }
+        const blob = await res.blob();
+        if (cancelled) return;
+        blobUrl = URL.createObjectURL(blob);
+        setImgUrl(blobUrl);
+      } catch {
+        if (!cancelled) setImgErr(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
+    };
+  }, [isImage, url, accessToken]);
+
+  async function openInTab(): Promise<void> {
+    if (!url) return;
     try {
       const res = await fetch(url, {
         headers: accessToken ? { authorization: `Bearer ${accessToken}` } : {},
@@ -67,18 +103,46 @@ function AttachmentBlock({
     }
   }
 
+  if (!att) return null;
+
+  if (isImage) {
+    return (
+      <button
+        type="button"
+        onClick={() => void openInTab()}
+        className="block max-w-full overflow-hidden rounded-md"
+      >
+        {imgUrl ? (
+          <img
+            src={imgUrl}
+            alt={att.filename}
+            className="max-h-72 w-auto max-w-full rounded-md object-contain"
+          />
+        ) : imgErr ? (
+          <div className="rounded-md bg-background/20 px-3 py-2 text-xs">
+            Could not load image
+          </div>
+        ) : (
+          <div className="flex h-32 w-48 items-center justify-center rounded-md bg-background/20 text-xs opacity-70">
+            Loading image…
+          </div>
+        )}
+      </button>
+    );
+  }
+
   return (
     <button
       type="button"
-      onClick={() => void open()}
-      className="block w-full rounded border border-border/40 bg-background/10 px-2 py-1.5 text-left text-xs underline-offset-2 hover:underline"
+      onClick={() => void openInTab()}
+      className="flex w-full max-w-xs items-center gap-2 rounded-md border border-border/40 bg-background/10 px-3 py-2 text-left hover:bg-background/20"
     >
-      <div className="flex items-center gap-2">
-        <span className="truncate font-medium">
-          {isImage ? '🖼️ ' : '📎 '}
-          {att.filename}
-        </span>
-        <span className="ml-auto shrink-0 opacity-70">{formatBytes(att.sizeBytes)}</span>
+      <span className="text-2xl leading-none">{fileIcon(att.mimeType)}</span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{att.filename}</div>
+        <div className="text-[11px] opacity-70">
+          {formatBytes(att.sizeBytes)} · click to open
+        </div>
       </div>
     </button>
   );

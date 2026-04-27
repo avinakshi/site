@@ -167,6 +167,100 @@ const attachmentsRoutes: FastifyPluginAsync<AttachmentsRoutesOptions> = async (a
     },
   );
 
+  // ── POST /v1/chat/attachments — client-side upload (chat session JWT) ──
+  app.post(
+    '/v1/chat/attachments',
+    {
+      preHandler: app.verifyChatAuth,
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: '1 minute',
+          keyGenerator: (req) => req.chat?.sessionId ?? req.ip ?? 'unknown',
+        },
+      },
+      schema: {
+        response: { 200: messageSchema },
+      },
+    },
+    async (req) => {
+      if (!req.chat) throw new Error('preHandler did not set req.chat');
+      const sessionId = req.chat.sessionId;
+      const ctx = { requestId: req.id, instance: req.url };
+
+      const sessionRows = await db
+        .select({ status: sessions.status })
+        .from(sessions)
+        .where(eq(sessions.id, sessionId))
+        .limit(1);
+      const session = sessionRows[0];
+      if (!session) {
+        throw createProblem('NOT_FOUND', { ...ctx, detail: 'Session not found.' });
+      }
+      if (
+        session.status !== 'active' &&
+        session.status !== 'pending' &&
+        session.status !== 'csm_handling'
+      ) {
+        throw createProblem('SESSION_CLOSED', {
+          ...ctx,
+          detail: 'Cannot attach to a closed or expired session.',
+        });
+      }
+
+      const file = await req.file({ limits: { fileSize: ATTACHMENT_MAX_BYTES } });
+      if (!file) {
+        throw createProblem('VALIDATION_ERROR', {
+          ...ctx,
+          detail: 'No file in multipart body.',
+        });
+      }
+      if (!ATTACHMENT_MIME_WHITELIST.has(file.mimetype)) {
+        throw createProblem('VALIDATION_ERROR', {
+          ...ctx,
+          detail: `Mime type not allowed: ${file.mimetype}`,
+        });
+      }
+      const buffer = await file.toBuffer();
+      if (buffer.byteLength > ATTACHMENT_MAX_BYTES) {
+        throw createProblem('VALIDATION_ERROR', {
+          ...ctx,
+          detail: 'File exceeds size limit.',
+        });
+      }
+
+      const meta = await attachmentService.save(
+        {
+          sessionId,
+          filename: file.filename || 'file',
+          mimeType: file.mimetype,
+          data: buffer,
+          uploadedByUserId: null,
+        },
+        ctx,
+      );
+
+      return messageService.send(
+        {
+          sessionId,
+          senderType: 'client',
+          senderId: null,
+          content: meta.filename,
+          clientMessageId: randomUUID(),
+          metadata: {
+            attachment: {
+              id: meta.id,
+              filename: meta.filename,
+              mimeType: meta.mimeType,
+              sizeBytes: meta.sizeBytes,
+            },
+          },
+        },
+        ctx,
+      );
+    },
+  );
+
   // ── GET /v1/attachments/:id — stream bytes (CSM or matching client) ──
   app.get('/v1/attachments/:id', async (req, reply) => {
     const auth = await resolveDownloadAuth(req);
